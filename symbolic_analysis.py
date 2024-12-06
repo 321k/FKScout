@@ -117,7 +117,7 @@ def find_fk(table_data, primary_keys):
     # Define the function schema
     functions = [
         {
-            "name": "Database schema with foreign keys",
+            "name": "foreign_keys",
             "description": "Validate if the given keys exist in the database schema.",
             "parameters": {
                 "type": "object",
@@ -151,13 +151,13 @@ def find_fk(table_data, primary_keys):
                 },
                 "required": ["keys"],  # Ensure the "keys" array is always provided
             },
-        }
+        },
     ]
 
     # Make the API call
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=messages,
             functions=functions,  # Use the functions parameter
             function_call="auto",  # Automatically call the function if applicable
