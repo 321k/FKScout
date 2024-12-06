@@ -45,9 +45,9 @@ def generate_mermaid_programmatically(df):
     for _, row in df.iterrows():
         if pd.notna(row['referenced_table']) and row['referenced_table'] != "":
             diagram += row['table_name']
-            diagram += " ||--o{ "
+            diagram += " }o--||"
             diagram += row['referenced_table']
-            diagram += " : references "
+            diagram += ' : "" '
             diagram += "\n"
     return diagram
 

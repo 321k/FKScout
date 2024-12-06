@@ -1,7 +1,7 @@
 import subprocess
 from google.cloud import bigquery
 import pandas as pd
-from symbolic_analysis import symbolic_analysis
+from symbolic_analysis import find_pk, find_fk
 from validate_keys import check_pk_uniqueness, key_existence_check, verify_foreign_key
 import json
 from domain_model_diagram import generate_mermaid_programmatically, print_mermaid
@@ -66,7 +66,7 @@ def extract_schema(client, project_id, dataset_id):
 
     return results
 
-def validate_keys(client, candidates):
+def validate_keys(client, project_id, dataset, candidates):
     candidates['records'] = None
     candidates['unique_records'] = None
     candidates['exists'] = None
@@ -75,7 +75,7 @@ def validate_keys(client, candidates):
 
     for index, row in candidates.iterrows():
         try:
-            res = check_pk_uniqueness(client, datasets[0], row['table_name'], row['column_name'])
+            res = check_pk_uniqueness(client, dataset, row['table_name'], row['column_name'])
             if res:
                 candidates.at[index, 'records'] = res[0]
                 candidates.at[index, 'unique_records'] = res[1]
@@ -88,7 +88,7 @@ def validate_keys(client, candidates):
         try:
             table_name = row['table_name'] if row['key_type'] == 'primary' else row['referenced_table']
             column_name = row['column_name'] if row['key_type'] == 'primary' else row['referenced_column']
-            res = key_existence_check(client, project_id, datasets[0], table_name, column_name)
+            res = key_existence_check(client, project_id, dataset, table_name, column_name)
             if res:
                 candidates.at[index, 'exists'] = res
                 print(res)
@@ -99,7 +99,7 @@ def validate_keys(client, candidates):
 
         try:
             if row['key_type'] == 'foreign':
-                res = verify_foreign_key(client, datasets[0], row['table_name'], row['column_name'], row['referenced_table'], row['referenced_column'])
+                res = verify_foreign_key(client, dataset, row['table_name'], row['column_name'], row['referenced_table'], row['referenced_column'])
                 if res:
                     candidates.at[index, 'valid_references'] = res[0]
                     candidates.at[index, 'invalid_references'] = res[1]
@@ -148,32 +148,44 @@ def main():
 
     user_input = input("Do you want to run symbolic analysis with GPT-4 (yes/no)?")
     if user_input == 'yes':
-        print('Searching for primary and foreign keys')
-        analysis_output = symbolic_analysis(schema_df)
-        with open("files/symbolic_analysis.txt", "w") as file:
-            file.write(json.dumps(analysis_output, indent=4))
-        print('Analysis saved to files/symbolic_analysis.txt')
+        print('Searching for primary keys')
+        pk_analysis_output = find_pk(schema_df)
+        primary_keys = pd.DataFrame(pk_analysis_output["arguments"]["keys"])
+        primary_keys.to_csv("files/pk_analysis.csv", index=False)
+        print('Primary key analysis saved to files/pk_analysis.txt')
+        
+        print('Searching for foreign keys')
+        candidates = pd.DataFrame()
+        for table in list(set(schema_df['table_name'])):
+            print(table)
+            table_data = schema_df[schema_df['table_name'] == table]['column_name']
+            fk_analysis_output = find_fk(table_data, primary_keys)
+            print(fk_analysis_output)
+            foreign_keys = pd.DataFrame(fk_analysis_output["arguments"]["keys"])
+            candidates = pd.concat([candidates, foreign_keys], ignore_index=True)
+        candidates.to_csv("files/fk_analysis.csv", index=False)
+
     else:
-        with open('files/symbolic_analysis.txt', "r") as file:
-            analysis_output = json.load(file)
+        schema_with_keys = pd.read_csv("files/fk_analysis.csv")
 
     user_input = input("Do you want to run foreign and primary key validation (yes/no)?")
     if user_input == 'yes':
         print("Validating the keys")
-        candidates = pd.DataFrame(analysis_output["arguments"]["keys"])
-        candidates = validate_keys(client, candidates)
-        print("Saving results as candidates.csv")
-        candidates.to_csv("files/candidates.csv", index=False)
+        schema_validation = validate_keys(client, project_id, dataset, schema_with_keys)
+        print("Saving results as schema_validation.csv")
+        schema_validation.to_csv("files/schema_validation.csv", index=False)
     else:
-        candidates = pd.read_csv("files/candidates.csv")
+        schema_validation = pd.read_csv("files/schema_validation.csv")
 
-    mermaid = generate_mermaid_programmatically(candidates)
+
+    filtered_schema = schema_validation[(schema_validation['exists']==1) & (schema_validation['valid_references']/(schema_validation['invalid_references']+schema_validation['valid_references'])>0.8)]
+    mermaid = generate_mermaid_programmatically(filtered_schema)
     mermaid_html = print_mermaid(mermaid)
     if mermaid_html:
         # Save to a file
         with open("files/mermaid_chart.html", "w") as file:
             file.write(mermaid_html)
-        print("Mermaid chart saved to 'files/mermaid_chart.html'.")
+        print(f"Mermaid chart saved to 'files/{dataset}_chart.html'.")
     else:
         print("Failed to generate Mermaid chart.")
 
