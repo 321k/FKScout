@@ -150,11 +150,11 @@ def main():
     if user_input == 'yes':
         print('Searching for primary keys')
         pk_analysis_output = find_pk(schema_df)
-        pk_analysis_output.to_csv("files/pk_analysis.csv", index=False)
-        print('Primary key analysis saved to files/pk_analysis.txt')
-        print('Searching for foreign keys')
         primary_keys = pd.DataFrame(pk_analysis_output["arguments"]["keys"])
-
+        primary_keys.to_csv("files/pk_analysis.csv", index=False)
+        print('Primary key analysis saved to files/pk_analysis.txt')
+        
+        print('Searching for foreign keys')
         candidates = pd.DataFrame()
         for table in list(set(schema_df['table_name'])):
             print(table)
@@ -177,13 +177,15 @@ def main():
     else:
         schema_validation = pd.read_csv("files/schema_validation.csv")
 
-    mermaid = generate_mermaid_programmatically(schema_validation)
+
+    filtered_schema = schema_validation[(schema_validation['exists']==1) & (schema_validation['valid_references']/(schema_validation['invalid_references']+schema_validation['valid_references'])>0.8)]
+    mermaid = generate_mermaid_programmatically(filtered_schema)
     mermaid_html = print_mermaid(mermaid)
     if mermaid_html:
         # Save to a file
         with open("files/mermaid_chart.html", "w") as file:
             file.write(mermaid_html)
-        print("Mermaid chart saved to 'files/mermaid_chart.html'.")
+        print(f"Mermaid chart saved to 'files/{dataset}_chart.html'.")
     else:
         print("Failed to generate Mermaid chart.")
 
