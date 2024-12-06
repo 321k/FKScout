@@ -1,7 +1,7 @@
 import subprocess
 from google.cloud import bigquery
 import pandas as pd
-from symbolic_analysis import symbolic_analysis
+from symbolic_analysis import find_pk, find_fk
 from validate_keys import check_pk_uniqueness, key_existence_check, verify_foreign_key
 import json
 from domain_model_diagram import generate_mermaid_programmatically, print_mermaid
@@ -148,11 +148,22 @@ def main():
 
     user_input = input("Do you want to run symbolic analysis with GPT-4 (yes/no)?")
     if user_input == 'yes':
-        print('Searching for primary and foreign keys')
-        analysis_output = symbolic_analysis(schema_df)
-        with open("files/symbolic_analysis.txt", "w") as file:
-            file.write(json.dumps(analysis_output, indent=4))
-        print('Analysis saved to files/symbolic_analysis.txt')
+        print('Searching for primary keys')
+        pk_analysis_output = find_pk(schema_df)
+        with open("files/pk_analysis.txt", "w") as file:
+            file.write(json.dumps(pk_analysis_output, indent=4))
+        print('Primary key analysis saved to files/pk_analysis.txt')
+        print('Searching for foreign keys')
+        candidates = pd.DataFrame()
+        for table in list(set(schema_df['table_name'])):
+            print(table)
+            table_data = schema_df[schema_df['table_name'] == table]
+            primary_keys = pd.DataFrame(pk_analysis_output["arguments"]["keys"])
+            pk_analysis_output = pk_analysis(table_data, primary_keys)
+            candidates = pd.concat([candidates, new_candidates], ignore_index=True)
+            print(candidates)
+        candidates.to_csv("files/fk_analysis.csv", index=False)
+
     else:
         with open('files/symbolic_analysis.txt', "r") as file:
             analysis_output = json.load(file)
