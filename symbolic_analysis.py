@@ -29,7 +29,7 @@ def find_pk(schema_df):
     functions = [
         {
             "name": "validate_keys",
-            "description": "Validate if the given keys exist in the database schema.",
+            "description": "Validate if any of the given keys exist in the database schema.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -93,8 +93,8 @@ def find_fk(table_data, primary_keys):
     Use OpenAI's API to analyze column names for patterns.
     """
     # Convert the DataFrame to a CSV string
-    table_data = table_data.to_csv(index=False)
-    primary_keys = primary_keys.to_csv(index=False)
+    table_data_csv = table_data.to_csv(index=False)
+    primary_keys_csv = primary_keys.to_csv(index=False)
 
     # Define the messages
     messages = [
@@ -105,10 +105,10 @@ def find_fk(table_data, primary_keys):
         {
             "role": "user",
             "content": (
-                "Identify all potential foreign keys in the following database table. "
-                f"{table_data}\n\n"
-                "Please review the list of tables and primary keys provided below. "
-                f"{primary_keys}\n\n"
+                "Identify all potential foreign keys in the following database table:"
+                f"{table_data_csv}\n\n"
+                "Please ise list of tables with primary keys provided below as a reference:"
+                f"{primary_keys_csv}\n\n"
                 "Provide the results in JSON format.\n\n"
             ),
         },
@@ -145,7 +145,7 @@ def find_fk(table_data, primary_keys):
                                     "nullable": True
                                 }
                             },
-                            "required": ["table_name", "column_name", "key_type"],
+                            "required": ["column_name", "key_type"],
                         },
                     },
                 },
@@ -157,7 +157,7 @@ def find_fk(table_data, primary_keys):
     # Make the API call
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4",
             messages=messages,
             functions=functions,  # Use the functions parameter
             function_call="auto",  # Automatically call the function if applicable
