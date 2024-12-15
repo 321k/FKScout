@@ -77,8 +77,8 @@ def validate_keys(client, project_id, dataset, candidates):
         try:
             res = check_pk_uniqueness(client, dataset, row['table_name'], row['column_name'])
             if res:
-                candidates.at[index, 'records'] = res[0]
-                candidates.at[index, 'unique_records'] = res[1]
+                candidates.loc[index, 'records'] = res[0]
+                candidates.loc[index, 'unique_records'] = res[1]
                 print(res)
             else:
                 print("Error")
@@ -110,7 +110,10 @@ def validate_keys(client, project_id, dataset, candidates):
                 print('Skip')
         except Exception as e:
             print(f"Error: {e}")
-        print(candidates.iloc[index])
+        if index in candidates.index:
+            print(candidates.loc[index])
+        else:
+            print(f"Index {index} no longer exists in the DataFrame.")
     return candidates
 
 def main():
@@ -146,32 +149,46 @@ def main():
         schema_df = pd.read_csv("files/schema.csv")
         print("Schema loaded from files/schema.csv")
 
-    user_input = input("Do you want to run symbolic analysis with GPT-4 (yes/no)?")
+    user_input = input("Do you want to search for primary keys with GPT-4 (yes/no)?")
     if user_input == 'yes':
         print('Searching for primary keys')
         pk_analysis_output = find_pk(schema_df)
         primary_keys = pd.DataFrame(pk_analysis_output["arguments"]["keys"])
         primary_keys.to_csv("files/pk_analysis.csv", index=False)
         print('Primary key analysis saved to files/pk_analysis.txt')
-        
+    else:
+        primary_keys = pd.read_csv("files/pk_analysis.csv")
+
+    user_input = input("Do you want to search for foreign keys with GPT-4 (yes/no)?")
+    if user_input == 'yes':
         print('Searching for foreign keys')
         candidates = pd.DataFrame()
         for table in list(set(schema_df['table_name'])):
             print(table)
-            table_data = schema_df[schema_df['table_name'] == table]['column_name']
+            table_data = schema_df[schema_df['table_name'] == table][['table_name', 'column_name']]
             fk_analysis_output = find_fk(table_data, primary_keys)
             print(fk_analysis_output)
-            foreign_keys = pd.DataFrame(fk_analysis_output["arguments"]["keys"])
+            if fk_analysis_output is None:
+                continue
+            elif "arguments" in fk_analysis_output and "keys" in fk_analysis_output["arguments"]:
+                foreign_keys = pd.DataFrame(fk_analysis_output["arguments"]["keys"])
+                foreign_keys['table_name'] = table
+            else:
+                continue
             candidates = pd.concat([candidates, foreign_keys], ignore_index=True)
         candidates.to_csv("files/fk_analysis.csv", index=False)
-
     else:
-        schema_with_keys = pd.read_csv("files/fk_analysis.csv")
+        candidates = pd.read_csv("files/fk_analysis.csv")
+
 
     user_input = input("Do you want to run foreign and primary key validation (yes/no)?")
     if user_input == 'yes':
         print("Validating the keys")
-        schema_validation = validate_keys(client, project_id, dataset, schema_with_keys)
+        filtered_candidates = candidates[
+            (candidates['referenced_table'].notnull()) & 
+            (candidates['referenced_column'].notnull())
+        ].copy()
+        schema_validation = validate_keys(client, project_id, dataset, filtered_candidates)
         print("Saving results as schema_validation.csv")
         schema_validation.to_csv("files/schema_validation.csv", index=False)
     else:
@@ -183,6 +200,7 @@ def main():
     mermaid_html = print_mermaid(mermaid)
     if mermaid_html:
         # Save to a file
+        file = f'files/{dataset}_mermaid_chart.html'
         with open("files/mermaid_chart.html", "w") as file:
             file.write(mermaid_html)
         print(f"Mermaid chart saved to 'files/{dataset}_chart.html'.")
