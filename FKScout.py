@@ -1,4 +1,5 @@
 import subprocess
+import logging
 from google.cloud import bigquery
 import pandas as pd
 from symbolic_analysis import find_pk, find_fk
@@ -9,7 +10,7 @@ import sys
 from pathlib import Path
 import argparse
 
-
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def authenticate_with_gcloud():
     """
@@ -34,15 +35,12 @@ def authenticate_with_gcloud():
             print("Please run `gcloud auth application-default login` manually.")
             raise  # Re-raise the error to indicate failure.
 
-def list_datasets(project_id):
-    # initialize BigQuery client
-    client = bigquery.Client(project=project_id)
-
+def list_datasets(client):
     # list all datasets
     datasets = client.list_datasets()
 
     if not datasets:
-        print(f"No datasets found in project {project_id}.")
+        print(f"No datasets found in project.")
         return []
 
     dataset_names = [dataset.dataset_id for dataset in datasets]
@@ -75,7 +73,7 @@ def validate_keys(client, project_id, dataset, candidates):
 
     for index, row in candidates.iterrows():
         try:
-            res = check_pk_uniqueness(client, dataset, row['table_name'], row['column_name'])
+            res = check_pk_uniqueness(client, project_id, dataset, row['table_name'], row['column_name'])
             if res:
                 candidates.loc[index, 'records'] = res[0]
                 candidates.loc[index, 'unique_records'] = res[1]
@@ -99,7 +97,7 @@ def validate_keys(client, project_id, dataset, candidates):
 
         try:
             if row['key_type'] == 'foreign':
-                res = verify_foreign_key(client, dataset, row['table_name'], row['column_name'], row['referenced_table'], row['referenced_column'])
+                res = verify_foreign_key(client, project_id, dataset, row['table_name'], row['column_name'], row['referenced_table'], row['referenced_column'])
                 if res:
                     candidates.at[index, 'valid_references'] = res[0]
                     candidates.at[index, 'invalid_references'] = res[1]
@@ -120,6 +118,7 @@ def main():
     parser = argparse.ArgumentParser(description="Process some variables.")
     parser.add_argument("--project_id", required=True, help="Google Cloud Project ID")
     parser.add_argument("--dataset", required=True, help="Dataset Name")
+    parser.add_argument("--billing_project_id", required=False, help="Billing project ID (optional)")
     args = parser.parse_args()
     
     print(f"Project ID: {args.project_id}")
@@ -127,13 +126,21 @@ def main():
     project_id = args.project_id
     dataset = args.dataset
 
+    if args.billing_project_id:
+        print(f"Billing project id: {args.billing_project_id}")
+        billing_project_id = args.billing_project_id
+    else:
+        print(f"Billing project id: {args.billing_project_id}")
+        billing_project_id = project_id
+    
+
     try:
         authenticate_with_gcloud()
     except RuntimeError as e:
         print(e)
 
-    client = bigquery.Client(project=project_id)
-    datasets = [dataset] if dataset else list_datasets(project_id)
+    client = bigquery.Client(project=billing_project_id)
+    datasets = [dataset] if dataset else list_datasets(client)
 
     print(f"- {dataset}")
     user_input = input("Do you want to fetch a fresh database schema from BigQuery (yes/no)?")
@@ -176,6 +183,7 @@ def main():
             else:
                 continue
             candidates = pd.concat([candidates, foreign_keys], ignore_index=True)
+        candidates = candidates[candidates['column_name']!="id"]
         candidates.to_csv("files/fk_analysis.csv", index=False)
     else:
         candidates = pd.read_csv("files/fk_analysis.csv")
@@ -185,8 +193,8 @@ def main():
     if user_input == 'yes':
         print("Validating the keys")
         filtered_candidates = candidates[
-            (candidates['referenced_table'].notnull()) & 
-            (candidates['referenced_column'].notnull())
+            candidates['referenced_table'].notnull() & 
+            candidates['referenced_column'].notnull()
         ].copy()
         schema_validation = validate_keys(client, project_id, dataset, filtered_candidates)
         print("Saving results as schema_validation.csv")
@@ -195,13 +203,16 @@ def main():
         schema_validation = pd.read_csv("files/schema_validation.csv")
 
 
-    filtered_schema = schema_validation[(schema_validation['exists']==1) & (schema_validation['valid_references']/(schema_validation['invalid_references']+schema_validation['valid_references'])>0.8)]
+    filtered_schema = schema_validation[(
+        (schema_validation['exists']==1) & 
+        (schema_validation['valid_references']/(schema_validation['invalid_references']+schema_validation['valid_references'])>0.1)
+    )]
     mermaid = generate_mermaid_programmatically(filtered_schema)
     mermaid_html = print_mermaid(mermaid)
     if mermaid_html:
         # Save to a file
         file = f'files/{dataset}_mermaid_chart.html'
-        with open("files/mermaid_chart.html", "w") as file:
+        with open(f"files/{dataset}_mermaid_chart.html", "w") as file:
             file.write(mermaid_html)
         print(f"Mermaid chart saved to 'files/{dataset}_chart.html'.")
     else:

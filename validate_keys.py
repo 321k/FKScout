@@ -1,13 +1,13 @@
 from google.cloud import bigquery
 import pandas as pd
 
-def check_pk_uniqueness(client, dataset, table, primary_key):
+def check_pk_uniqueness(client, project_id, dataset, table, primary_key):
     # Construct the query dynamically
     query = f"""
     SELECT
         COUNT(*) AS total_rows,
         COUNT(DISTINCT {primary_key}) AS unique_rows
-    FROM `{dataset}.{table}`;
+    FROM `{project_id}.{dataset}.{table}`;
     """
     # Run the query
     query_job = client.query(query)
@@ -28,13 +28,13 @@ def key_existence_check(client, project_id, dataset, table, key):
     records = result.loc[0, "records"]
     return records
 
-def verify_foreign_key(client, dataset, child_table, foreign_key, parent_table, primary_key):
+def verify_foreign_key(client, project_id, dataset, child_table, foreign_key, parent_table, primary_key):
     query = f"""
     SELECT
         SUM(CASE WHEN parent.{primary_key} IS NOT NULL THEN 1 ELSE 0 END) AS valid_references,
         SUM(CASE WHEN parent.{primary_key} IS NULL THEN 1 ELSE 0 END) AS invalid_references
-    FROM `{dataset}.{child_table}` AS child
-    LEFT JOIN `{dataset}.{parent_table}` AS parent
+    FROM `{project_id}.{dataset}.{child_table}` AS child
+    LEFT JOIN `{project_id}.{dataset}.{parent_table}` AS parent
     ON child.{foreign_key} = parent.{primary_key};
     """
     query_job = client.query(query)
